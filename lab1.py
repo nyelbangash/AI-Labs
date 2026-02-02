@@ -100,7 +100,7 @@ class State:
         occ = self.occupancy_map()
         succ: List[Tuple[str, State]] = []
 
-        """Helper function to check if a cell is empty"""
+        """Helper function to check if a cell is empty, fine here for now but maybe move it outside so its always in-scope"""
         def cell_free(r: int, c:int, moving_name: str) -> bool:
             if not (0 <= r < self.grid_size and 0 <= c < self.grid_size):
                 return False
