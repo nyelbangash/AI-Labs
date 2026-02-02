@@ -1,12 +1,20 @@
 import heapq
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Set
 
 class Vehicle:
+    """
+    name: unique id (e.g., 'A', 'B', '1', 'R')
+    row, col: anchor cell
+      - H vehicles: (row, col) is the LEFT-most cell
+      - V vehicles: (row, col) is the TOP-most cell
+    orientation: 'H' or 'V' - 'H' for horizontal, 'V' for vertical
+    size: 2 (car) or 3 (truck)
+    """
     def __init__(self, name: str, row: int, col: int, length: int, orientation: str, size:int):
         self.name = name
         self.row = row
         self.col = col
-        self.orientation = orientation  # 'H' for horizontal, 'V' for vertical
+        self.orientation = orientation
         self.size = size
 
     def occupies(self, r: int, c: int) -> bool:
@@ -24,6 +32,10 @@ class Vehicle:
             for r in range(self.row, self.row + self.size):
                 cells.append((r, self.col))
         return cells
+    
+    """Returns a vehicle shifted by (dr, dc)"""
+    def moved(self, dr: int, dc: int) -> "Vehicle":
+        return Vehicle(self.bame, self.row + dr, self.col + dc, self.orientation, self.size)
 
 class State:
     def __init__(self, vehicles: List[Vehicle], grid_size: int, exit_row: int, exit_col: int):
@@ -37,6 +49,110 @@ class State:
                 self.red_car = v
                 break
         return self.red_car.row == self.exit_row and self.red_car.col == self.exit_col
+    
+    """Goal is reached when the red car occupies an 'exit' cell (edge of the map)"""
+    def is_goal(self) -> bool:
+        return self.red_car.occupies(self.exit_row, self.exit_col)
+    
+    """Builds a dictionary mapping each occupied grid cell (row, col) to the vehicle currently occupying it
+    Used to:
+    - detect overlaos (which are invalid states)
+    - quickly check if a move is legal (see if the next cell is empty)
+    - support heuriostics that need to know which vehicles block the red car
+    """
+    def occupancy_map(self) -> Dict[Tuple[int, int], str]:
+        occ: Dict[Tuple[int, int], str] = {}
+        for v in self.vehicles:
+            for cell in v.get_occupied_cells():
+                if cell in occ:
+                    raise ValueError(f"Overlap at cell {cell} between {v.name} and {occ[cell]}")
+                occ[cell] = v.name
+        return occ
+
+    """Check if a vehicle is fully inside the grid, used to make sure don't do an invalid move"""
+    def in_bound_vehicle(self, v:Vehicle) -> bool:
+        for r, c in v.get_occupied_cells():
+            if not (0 <= r < self.grid_size and 0<= c < self.grid_size):
+                return False
+        return True
+
+    """Check if inbounds and no overlaps"""
+    def is_legal(self) -> bool:
+        try:
+            _ = self.occupancy_map()
+        except ValueError:
+            return False
+        for v in self.vehicles:
+            if not self.in_bound_vehicle(v):
+                return False
+        return True
+
+    """Sort vehicles by name where ordering doesn't matter"""
+    def signature(self) -> Tuple[Tuple[str, int, int], ...]:
+        return tuple(sorted((v.name, v.row, v.col) for v in self.vehicles))
+    
+    """Get ChatGPT or something to print a board to check how it works"""
+    def board(self) -> str:
+        return "Temp"
+    
+    """Generate all legal successor states by moving one vehicle exactly one cell"""
+    def successors(self) -> List[Tuple[str, "State"]]:
+        occ = self.occupancy_map()
+        succ: List[Tuple[str, State]] = []
+
+        """Helper function to check if a cell is empty"""
+        def cell_free(r: int, c:int, moving_name: str) -> bool:
+            if not (0 <= r < self.grid_size and 0 <= c < self.grid_size):
+                return False
+            return (r,c) not in occ or occ[(r,c)] == moving_name
+        
+        for idx, v in enumerate(self.vehicles):
+            if v.orientation == 'H':
+                # left: need cell immedietly left ir left most part free
+                left_cell = (v.row, v.col-1)
+                if cell_free(left_cell[0], left_cell[1], v.name):
+                    new_v = v.moved(0, -1)
+                    new_vehicles = self.vehicles.copy()
+                    new_vehicles[idx] = new_v
+                    new_state = State(new_vehicles, self.grid_size, self.exit_row, self.exit_col)
+                    if new_state.is_legal():
+                        succ.append((f"{v.name}", new_state))
+                
+                # right: need cell immedietly right of the right-most part free
+                right_cell = (v.row, v.col + v.size)
+                if cell_free(right_cell[0], right_cell[1], v.name):
+                    new_v = v.moved(0, +1)
+                    new_vehicles = self.vehicles.copy()
+                    new_vehicles[idx] = new_v
+                    new_state = State(new_vehicles, self.grid_size, self.exit_row, self.exit_col)
+                    if new_state.is_legal():
+                        succ.append((f"{v.name} right", new_state))
+
+
+            else:  # orientation is 'V'
+                # up: cell immediately above top-most free
+                up_cell = (v.row - 1, v.col)
+                if cell_free(up_cell[0], up_cell[1], v.name):
+                    new_v = v.moved(-1, 0)
+                    new_vehicles = self.vehicles.copy()
+                    new_vehicles[idx] = new_v
+                    new_state = State(new_vehicles, self.grid_size, self.exit_row, self.exit_col)
+                    if new_state.is_legal():
+                        succ.append((f"{v.name} up", new_state))
+
+                # down: cell immediately below bottom-most free
+                down_cell = (v.row + v.size, v.col)
+                if cell_free(down_cell[0], down_cell[1], v.name):
+                    new_v = v.moved(+1, 0)
+                    new_vehicles = self.vehicles.copy()
+                    new_vehicles[idx] = new_v
+                    new_state = State(new_vehicles, self.grid_size, self.exit_row, self.exit_col)
+                    if new_state.is_legal():
+                        succ.append((f"{v.name} down", new_state))
+        
+        return succ
+
+
 
 def UCS(state: State) -> int:
     return 0
