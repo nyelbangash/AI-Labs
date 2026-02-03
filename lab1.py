@@ -10,7 +10,7 @@ class Vehicle:
     orientation: 'H' or 'V' - 'H' for horizontal, 'V' for vertical
     size: 2 (car) or 3 (truck)
     """
-    def __init__(self, name: str, row: int, col: int, length: int, orientation: str, size:int):
+    def __init__(self, name: str, row: int, col: int, orientation: str, size: int):
         self.name = name
         self.row = row
         self.col = col
@@ -35,7 +35,7 @@ class Vehicle:
     
     """Returns a vehicle shifted by (dr, dc)"""
     def moved(self, dr: int, dc: int) -> "Vehicle":
-        return Vehicle(self.bame, self.row + dr, self.col + dc, self.orientation, self.size)
+        return Vehicle(self.name, self.row + dr, self.col + dc, self.orientation, self.size)
 
 class State:
     def __init__(self, vehicles: List[Vehicle], grid_size: int, exit_row: int, exit_col: int):
@@ -48,7 +48,6 @@ class State:
             if v.name == 'R':
                 self.red_car = v
                 break
-        return self.red_car.row == self.exit_row and self.red_car.col == self.exit_col
     
     """Goal is reached when the red car occupies an 'exit' cell (edge of the map)"""
     def is_goal(self) -> bool:
@@ -72,7 +71,7 @@ class State:
     """Check if a vehicle is fully inside the grid, used to make sure don't do an invalid move"""
     def in_bound_vehicle(self, v:Vehicle) -> bool:
         for r, c in v.get_occupied_cells():
-            if not (0 <= r < self.grid_size and 0<= c < self.grid_size):
+            if not (1 <= r <= self.grid_size and 1 <= c <= self.grid_size):
                 return False
         return True
 
@@ -90,7 +89,17 @@ class State:
     """Sort vehicles by name where ordering doesn't matter"""
     def signature(self) -> Tuple[Tuple[str, int, int], ...]:
         return tuple(sorted((v.name, v.row, v.col) for v in self.vehicles))
-    
+
+    def __hash__(self):
+        """Hash based on vehicle positions"""
+        return hash(self.signature())
+
+    def __eq__(self, other):
+        """Check if two states are equal"""
+        if not isinstance(other, State):
+            return False
+        return self.signature() == other.signature()
+
     """Get ChatGPT or something to print a board to check how it works"""
     def board(self) -> str:
         return "Temp"
@@ -102,7 +111,7 @@ class State:
 
         """Helper function to check if a cell is empty, fine here for now but maybe move it outside so its always in-scope"""
         def cell_free(r: int, c:int, moving_name: str) -> bool:
-            if not (0 <= r < self.grid_size and 0 <= c < self.grid_size):
+            if not (1 <= r <= self.grid_size and 1 <= c <= self.grid_size):
                 return False
             return (r,c) not in occ or occ[(r,c)] == moving_name
         
@@ -171,16 +180,22 @@ def h2(state: State) -> int:
         return 0
 
     distance = abs(state.red_car.row - state.exit_row)
-    num_blocking_vehicles = 0
+    blocking_vehicles = set()
+
+    # Determine the range of rows to check (handles both directions)
+    min_row = min(state.red_car.row, state.exit_row)
+    max_row = max(state.red_car.row, state.exit_row)
 
     # Check for blocking vehicles in the path of the red car
-    for r in range(state.red_car.row + 1, state.exit_row + 1):
+    for r in range(min_row, max_row + 1):
         for vehicle in state.vehicles:
-            if vehicle != state.red_car and vehicle.occupies(r, state.red_car.col):
-                num_blocking_vehicles += 1
-                break
+            if vehicle.name == 'R':
+                continue  # Skip red car itself
+            # Check if vehicle blocks the exit column
+            if vehicle.occupies(r, state.exit_col):
+                blocking_vehicles.add(vehicle.name)
 
-    return distance + num_blocking_vehicles
+    return distance + len(blocking_vehicles)
 
 
 def A_star(initial_state: State, heuristic) -> Tuple[Optional[List[State]], int]:
@@ -189,7 +204,42 @@ def A_star(initial_state: State, heuristic) -> Tuple[Optional[List[State]], int]
     heapq.heappush(frontier, (heuristic(initial_state), counter, 0, initial_state, [initial_state]))
 
     explored = set()
-    
+
+    # Counter for states explored
+    states_explored = 0
+
+    while frontier:
+        # Get state with lowest f-value
+        _, _, g_value, current_state, path = heapq.heappop(frontier)
+
+        # Check if we've reached the goal
+        if current_state.is_goal():
+            return path, states_explored
+
+        # Skip if already explored
+        if current_state in explored:
+            continue
+
+        # Mark as explored
+        explored.add(current_state)
+        states_explored += 1
+
+        # Generate successor states
+        for _, successor in current_state.successors():
+            if successor not in explored:
+                # Calculate costs
+                new_g = g_value + 1  # Each move costs 1
+                h = heuristic(successor)
+                new_f = new_g + h
+
+                # Add to frontier
+                counter += 1
+                new_path = path + [successor]
+                heapq.heappush(frontier, (new_f, counter, new_g, successor, new_path))
+
+    # No solution found
+    return None, states_explored
+
 def create_state_1() -> State:
     vehicles = [
         Vehicle('A', 1, 4, 'V', 2),  # Car 1
@@ -233,3 +283,56 @@ def create_state_3() -> State:
         Vehicle('R', 3, 6, 'V', 2),  # Red Car
     ]
     return State(vehicles, 6, 1, 6)  # Exit at (1, 6)
+
+
+def main():
+
+    states = [
+        ("Puzzle 1", create_state_1()),
+        ("Puzzle 2", create_state_2()),
+        ("Puzzle 3", create_state_3())
+    ]
+
+    heuristics = [
+        ("Uniform Cost Search (h=0)", UCS),
+        ("A* with h1 (distance)", h1),
+        ("A* with h2 (distance + blocking)", h2)
+    ]
+
+    # Store results for comparison
+    results = []
+
+    for puzzle_name, initial_state in states:
+        print(f"{puzzle_name}")
+        print(f"Exit position: ({initial_state.exit_row}, {initial_state.exit_col})")
+
+        puzzle_results = []
+
+        for heuristic_name, heuristic_func in heuristics:
+            print(heuristic_name)
+            solution_path, states_explored = A_star(initial_state, heuristic_func)
+
+            if solution_path:
+                num_moves = len(solution_path) - 1  # Subtract initial state
+                print(f"  Solution found: {num_moves} moves")
+                print(f"  States explored: {states_explored}")
+                puzzle_results.append({
+                    'heuristic': heuristic_name,
+                    'moves': num_moves,
+                    'explored': states_explored,
+                    'path': solution_path
+                })
+            else:
+                print(f"  No solution found")
+                print(f"  States explored: {states_explored}")
+                puzzle_results.append({
+                    'heuristic': heuristic_name,
+                    'moves': None,
+                    'explored': states_explored,
+                    'path': None
+                })
+
+        results.append((puzzle_name, puzzle_results))
+
+if __name__ == "__main__":
+    main()
