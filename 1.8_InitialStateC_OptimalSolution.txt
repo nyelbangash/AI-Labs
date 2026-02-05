@@ -1,7 +1,7 @@
 Initial State C — Optimal Solution
 Total moves: 21
 
-Step 0:
+Step 0 - Initial State C:
   1 2 3 4 5 6 
  +-----------+
 1|. . 2 1 1 1 |
@@ -232,7 +232,7 @@ Step 20:
 6|. . . A . . |
  +-----------+
 
-Step 21:
+Step 21 - Goal State Reached:
   1 2 3 4 5 6 
  +-----------+
 1|4 3 1 1 1 R |
